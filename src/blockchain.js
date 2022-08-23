@@ -66,6 +66,12 @@ class Blockchain {
         return new Promise(async (resolve, reject) => {
 
             try {
+                const errors = await this.validateChain();
+
+                if (errors.length) {
+                    resolve(["Chain not valid", ...errors]);
+                }
+
                 const height = self.height + 1;
                 block.height = height;
                 block.time = new Date().getTime().toString().slice(0,-3);
@@ -82,7 +88,6 @@ class Blockchain {
             } catch (err) {
                 reject(err);
             }
-           
         });
     }
 
@@ -157,7 +162,7 @@ class Blockchain {
             if (block) {
                 resolve(block)
             } else {
-                reject(`Cannot find block with ${hash}`)
+                reject(new Error(`Cannot find block with ${hash}`))
             }
         });
     }
@@ -188,13 +193,18 @@ class Blockchain {
     getStarsByWalletAddress (address) {
         let self = this;
         let stars = [];
-        return new Promise((resolve, reject) => {
-            self.chain.forEach(async block => {
+        return new Promise(async(resolve, reject) => {
+            const errors = await this.validateChain();
+
+            if (errors.length)
+                resolve(["Invalid Chain", ...errors])
+
+            for (const block of self.chain) {
                 let blockData = await block.getBData();
                 if (blockData && blockData.owner === address) {
                    stars.push(blockData)
                 }
-            });
+            }
             resolve(stars);
         });
     }
@@ -205,28 +215,29 @@ class Blockchain {
      * 1. You should validate each block using `validateBlock`
      * 2. Each Block should check the with the previousBlockHash
      */
+
     validateChain() {
         let self = this;
         let errorLog = [];
-       return new Promise(async (resolve, reject) => {
-            for (let i = 0; i < self.chain.length; i++) {
-                let currentBlock = self.chain[i];
-                if ( !(await currentBlock.validate()) ) {
-                    errorLog.push({
-                        error: 'Failed validation',
-                        block: currentBlock
-                    });
+        return new Promise(async (resolve, reject) => {
+            let height = await self.getChainHeight();
+            try {
+                for (let i = 0; i < height; i++) {
+                    if (!await self.chain[i].validate())
+                        errorLog.push(`Block is invalid`)
                 }
-                if (i === 0) continue;
-                let previousBlock = self.chain[i - 1];
-                if (currentBlock.previousBlockHash !== previousBlock.hash) {
-                    errorLog.push({
-                        error: 'Previous block hash does not match',
-                        block: currentBlock
-                    });
+                for (let i = 0; i < height - 1; i++) {
+                    let hash = self.chain[i].hash;
+                    let previousBlockHash = self.chain[i + 1].previousBlockHash;
+
+                    if (hash !== previousBlockHash)
+                        errorLog.push(`Previous block hash does not match`)
                 }
+                resolve(errorLog)
             }
-            resolve(errorLog);
+            catch (err){
+                reject(err)
+            }
         });
     }
 
